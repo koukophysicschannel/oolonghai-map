@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>ウーロンハイ在庫メモ</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+/* レイアウト: 上にタイトルと絞り込み、残り全面が地図。操作は下から出るシート1枚に集約する */
+:root{
+  --bg:#f6f2ea; --panel:#fffdf8; --ink:#2b2118; --muted:#76695a; --line:#e2d9c8;
+  --accent:#8a4b12;
+  --yes:#2f7d4f; --no:#b6402f; --mix:#d9962b; --unk:#8b8f95;
+  --on-yes:#ffffff; --on-no:#ffffff; --on-mix:#2b2118; --on-unk:#ffffff;
+  --font:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",Meiryo,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1b1611; --panel:#262019; --ink:#f1e9dc; --muted:#b3a593; --line:#3b3226;
+    --accent:#e3a560;
+    --yes:#5fbf86; --no:#e5766a; --mix:#e3b04b; --unk:#9aa0a6;
+    --on-yes:#0f2417; --on-no:#2a0e09; --on-mix:#2b2118; --on-unk:#16181a;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1b1611; --panel:#262019; --ink:#f1e9dc; --muted:#b3a593; --line:#3b3226;
+  --accent:#e3a560;
+  --yes:#5fbf86; --no:#e5766a; --mix:#e3b04b; --unk:#9aa0a6;
+  --on-yes:#0f2417; --on-no:#2a0e09; --on-mix:#2b2118; --on-unk:#16181a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{margin:0;display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font:14px/1.5 var(--font);overflow:hidden}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px 6px}
+h1{margin:0;font-size:17px;letter-spacing:.02em;text-wrap:balance}
+.tools{display:flex;gap:6px}
+.tool{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 10px;font-size:13px}
+
+.chips{display:flex;gap:6px;padding:4px 16px 10px;overflow-x:auto;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 12px;font-size:13px;font-variant-numeric:tabular-nums}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--unk)}
+.dot.yes{background:var(--yes)} .dot.no{background:var(--no)} .dot.mix{background:var(--mix)} .dot.unk{background:var(--unk)}
+.dot.all{background:conic-gradient(var(--yes) 0 33%,var(--mix) 0 66%,var(--no) 0)}
+
+#stage{position:relative;flex:1;min-height:0;border-top:1px solid var(--line)}
+#map{position:absolute;inset:0;background:#e9e4d8}
+
+.pin{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);font-weight:800;font-size:15px;line-height:1}
+.pin.yes{background:var(--yes);color:var(--on-yes)}
+.pin.no{background:var(--no);color:var(--on-no)}
+.pin.mix{background:var(--mix);color:var(--on-mix)}
+.pin.unk{background:var(--unk);color:var(--on-unk)}
+.pin.draft{background:#fff;color:var(--accent);border-color:var(--accent);border-style:dashed}
+
+.fabs{position:absolute;right:12px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:900;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.fab{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:10px 16px;box-shadow:0 2px 8px rgba(0,0,0,.25);font-weight:700}
+.fab.main{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+
+.hint{position:absolute;left:16px;right:16px;top:12px;z-index:900;max-width:420px;margin-inline:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:0 2px 10px rgba(0,0,0,.2)}
+.hint p{margin:0}
+.hint p+p{margin-top:4px;color:var(--muted);font-size:13px}
+
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:1200;width:min(100%,540px);margin-inline:auto;background:var(--panel);border:1px solid var(--line);border-bottom:0;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.25);padding:8px 16px calc(14px + env(safe-area-inset-bottom,0px));max-height:78%;overflow-y:auto}
+.grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 8px}
+.sheet h2{margin:0 0 8px;font-size:15px}
+.sheet label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;letter-spacing:.04em}
+.sheet input,.sheet textarea{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:9px 10px;font-size:16px}
+.sheet textarea{resize:vertical}
+.q{margin:12px 0 6px;font-weight:700}
+.btns{display:grid;gap:8px}
+.btns.three{grid-template-columns:1fr 1fr 1fr}
+.btns.two{grid-template-columns:1fr 1fr}
+.b{border:1px solid transparent;border-radius:10px;padding:13px 8px;font-weight:700;font-size:15px}
+.b.yes{background:var(--yes);color:var(--on-yes)}
+.b.no{background:var(--no);color:var(--on-no)}
+.b.ghost{background:transparent;border-color:var(--line)}
+.row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:12px}
+.link{border:0;background:none;padding:6px 0;color:var(--accent);text-decoration:underline;text-underline-offset:3px;font-size:13px}
+.link.danger{color:var(--no)}
+.link.armed{background:var(--no);color:var(--on-no);text-decoration:none;border-radius:6px;padding:6px 10px;font-weight:700}
+.sum{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 4px;font-variant-numeric:tabular-nums}
+.badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 10px;font-weight:700;font-size:12px}
+.badge.yes{background:var(--yes);color:var(--on-yes)} .badge.no{background:var(--no);color:var(--on-no)}
+.badge.mix{background:var(--mix);color:var(--on-mix)} .badge.unk{background:var(--unk);color:var(--on-unk)}
+.hist{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.hist li{border:1px solid var(--line);border-radius:8px;padding:2px 8px;font-size:12px;font-variant-numeric:tabular-nums;display:flex;gap:6px;align-items:center}
+.hist .g{font-weight:800}
+.hist .g.yes{color:var(--yes)} .hist .g.no{color:var(--no)}
+
+.toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:1500;background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:999px;font-size:13px;max-width:calc(100% - 32px);text-align:center}
+.me{pointer-events:none}
+.leaflet-container{font-family:var(--font)}
+@media (prefers-reduced-motion: no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(20px);opacity:.6}to{transform:none;opacity:1}}}
+</style>
+</head>
+<body>
+<header>
+  <h1>ウーロンハイ在庫メモ</h1>
+  <div class="tools">
+    <button class="tool" id="btn-export" type="button">書き出し</button>
+    <button class="tool" id="btn-import" type="button">読み込み</button>
+    <input id="file-import" type="file" accept="application/json,.json" hidden>
+  </div>
+</header>
+<nav class="chips" id="chips" aria-label="絞り込み"></nav>
+<main id="stage">
+  <div id="map"></div>
+  <div class="hint" id="hint" hidden>
+    <p>地図をタップして、探した店を記録します。</p>
+    <p>「あった」「なかった」を押すだけで保存されます。</p>
+  </div>
+  <div class="fabs" id="fabs">
+    <button class="fab" id="btn-locate" type="button">現在地へ</button>
+    <button class="fab main" id="btn-add-here" type="button">＋ 現在地に追加</button>
+  </div>
+  <section class="sheet" id="sheet" hidden aria-live="polite"></section>
+  <div class="toast" id="toast" hidden></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+(function(){
+  var KEY='oolonghai-stores-v1';
+  var LABEL={yes:'ある',no:'ない',mix:'ときどき',unk:'未確認'};
+  var GLYPH={yes:'○',no:'×',mix:'△',unk:'？'};
+  var stores=[];
+  var filter='all';
+  var mode=null;          // {type:'new',lat,lng} | {type:'edit',id}
+  var draftMarker=null;
+  var meMarker=null;
+  var toastTimer=null;
+
+  function $(s){return document.querySelector(s)}
+  function esc(t){return String(t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+  function today(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+  function fmt(iso){var p=iso.split('-');var y=+p[0];return (y===new Date().getFullYear()?'':y+'/')+(+p[1])+'/'+(+p[2])}
+
+  function load(){try{var v=JSON.parse(localStorage.getItem(KEY)||'[]');stores=Array.isArray(v)?v:[]}catch(e){stores=[]}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(stores))}catch(e){toast('この端末では保存できませんでした。書き出しで控えを取ってください')}}
+
+  function counts(s){var y=0,n=0;s.visits.forEach(function(v){v.s==='yes'?y++:n++});return {y:y,n:n}}
+  function statusOf(s){var c=counts(s);if(!s.visits.length)return 'unk';if(c.y&&c.n)return 'mix';return c.y?'yes':'no'}
+
+  function toast(msg){
+    var t=$('#toast');t.textContent=msg;t.hidden=false;
+    clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.hidden=true},3200);
+  }
+
+  /* 地図 */
+  var map=L.map('map',{zoomControl:true}).setView([35.681,139.767],15);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);
+  var layer=L.layerGroup().addTo(map);
+
+  function pinIcon(cls,glyph){
+    return L.divIcon({className:'',html:'<span class="pin '+cls+'">'+glyph+'</span>',iconSize:[32,32],iconAnchor:[16,16]});
+  }
+
+  function renderMarkers(){
+    layer.clearLayers();
+    stores.forEach(function(s){
+      var st=statusOf(s);
+      if(filter!=='all'&&filter!==st)return;
+      var m=L.marker([s.lat,s.lng],{icon:pinIcon(st,GLYPH[st]),title:s.name}).addTo(layer);
+      m.on('click',function(){openEdit(s.id)});
+    });
+  }
+
+  function renderChips(){
+    var c={all:stores.length,yes:0,mix:0,no:0,unk:0};
+    stores.forEach(function(s){c[statusOf(s)]++});
+    var items=[['all','すべて'],['yes','ある'],['mix','ときどき'],['no','ない'],['unk','未確認']];
+    $('#chips').innerHTML=items.map(function(i){
+      return '<button type="button" class="chip" data-f="'+i[0]+'" aria-pressed="'+(filter===i[0])+'"><span class="dot '+i[0]+'"></span>'+i[1]+' '+c[i[0]]+'</button>';
+    }).join('');
+  }
+
+  function renderAll(){
+    renderChips();renderMarkers();
+    $('#hint').hidden=!(stores.length===0&&!mode);
+  }
+
+  $('#chips').addEventListener('click',function(e){
+    var b=e.target.closest('.chip');if(!b)return;
+    filter=b.dataset.f;renderAll();
+  });
+
+  /* シート */
+  var sheet=$('#sheet');
+
+  function clearDraft(){if(draftMarker){map.removeLayer(draftMarker);draftMarker=null}}
+  function closeSheet(){
+    clearDraft();mode=null;sheet.hidden=true;sheet.innerHTML='';
+    $('#fabs').hidden=false;renderAll();
+  }
+
+  function openNew(ll){
+    if(mode&&mode.type==='new'){
+      mode.lat=ll.lat;mode.lng=ll.lng;
+      if(draftMarker)draftMarker.setLatLng(ll);
+      return;
+    }
+    closeSheet();
+    mode={type:'new',lat:ll.lat,lng:ll.lng};
+    draftMarker=L.marker(ll,{icon:pinIcon('draft','＋'),interactive:false}).addTo(map);
+    $('#fabs').hidden=true;$('#hint').hidden=true;
+    sheet.innerHTML=
+      '<div class="grab"></div>'+
+      '<h2>この場所を記録</h2>'+
+      '<label for="f-name">店名</label>'+
+      '<input id="f-name" value="セブン-イレブン " autocomplete="off">'+
+      '<p class="q">ウーロンハイはあった？</p>'+
+      '<div class="btns three">'+
+        '<button type="button" class="b yes" data-r="yes">あった</button>'+
+        '<button type="button" class="b no" data-r="no">なかった</button>'+
+        '<button type="button" class="b ghost" data-r="unk">あとで</button>'+
+      '</div>'+
+      '<div class="row"><button type="button" class="link" id="cancel">やめる</button></div>';
+    sheet.hidden=false;
+    sheet.querySelector('[data-r]').parentNode.addEventListener('click',function(e){
+      var b=e.target.closest('[data-r]');if(!b)return;
+      var r=b.dataset.r;
+      var name=($('#f-name').value||'').trim()||'セブン-イレブン';
+      stores.push({id:uid(),name:name,lat:mode.lat,lng:mode.lng,memo:'',visits:r==='unk'?[]:[{d:today(),s:r}]});
+      save();closeSheet();
+      toast(r==='unk'?'未確認のピンを立てました':'記録しました');
+    });
+    $('#cancel').addEventListener('click',closeSheet);
+  }
+
+  function find(id){for(var i=0;i<stores.length;i++)if(stores[i].id===id)return stores[i];return null}
+
+  function openEdit(id){
+    var s=find(id);if(!s)return;
+    clearDraft();mode={type:'edit',id:id};
+    $('#fabs').hidden=true;$('#hint').hidden=true;
+    var st=statusOf(s),c=counts(s);
+    var hist=s.visits.slice().reverse().slice(0,12).map(function(v){
+      return '<li><span class="g '+v.s+'">'+(v.s==='yes'?'○':'×')+'</span>'+esc(fmt(v.d))+'</li>';
+    }).join('');
+    sheet.innerHTML=
+      '<div class="grab"></div>'+
+      '<label for="f-name">店名</label>'+
+      '<input id="f-name" value="'+esc(s.name)+'" autocomplete="off">'+
+      '<p class="sum" style="margin-top:10px"><span class="badge '+st+'">'+GLYPH[st]+' '+LABEL[st]+'</span>'+
+        '<span>あった '+c.y+'回</span><span>なかった '+c.n+'回</span></p>'+
+      '<p class="q">今日は？</p>'+
+      '<div class="btns two">'+
+        '<button type="button" class="b yes" data-r="yes">今日あった</button>'+
+        '<button type="button" class="b no" data-r="no">今日なかった</button>'+
+      '</div>'+
+      (hist?'<ul class="hist" aria-label="記録の履歴">'+hist+'</ul>':'')+
+      '<label for="f-memo">メモ</label>'+
+      '<textarea id="f-memo" rows="2" placeholder="例：入荷は夕方、レジ横の冷蔵ケース">'+esc(s.memo||'')+'</textarea>'+
+      '<div class="row">'+
+        '<a class="link" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+s.lat+','+s.lng+'">Googleマップで開く</a>'+
+        (s.visits.length?'<button type="button" class="link" id="undo">最後の記録を取り消す</button>':'')+
+        '<button type="button" class="link danger" id="del">この店を削除</button>'+
+        '<button type="button" class="link" id="close" style="margin-left:auto">閉じる</button>'+
+      '</div>';
+    sheet.hidden=false;
+
+    sheet.querySelector('.btns').addEventListener('click',function(e){
+      var b=e.target.closest('[data-r]');if(!b)return;
+      s.visits.push({d:today(),s:b.dataset.r});save();renderAll();openEdit(id);
+      toast(b.dataset.r==='yes'?'「あった」を記録しました':'「なかった」を記録しました');
+    });
+    $('#f-name').addEventListener('change',function(){
+      s.name=this.value.trim()||s.name;save();renderMarkers();
+    });
+    $('#f-memo').addEventListener('change',function(){s.memo=this.value;save()});
+    var u=$('#undo');
+    if(u)u.addEventListener('click',function(){s.visits.pop();save();renderAll();openEdit(id)});
+    var d=$('#del'),armT=null;
+    d.addEventListener('click',function(){
+      if(!d.classList.contains('armed')){
+        d.classList.add('armed');d.textContent='もう一度押すと削除';
+        armT=setTimeout(function(){d.classList.remove('armed');d.textContent='この店を削除'},3000);
+        return;
+      }
+      clearTimeout(armT);
+      stores=stores.filter(function(x){return x.id!==id});
+      save();closeSheet();toast('削除しました');
+    });
+    $('#close').addEventListener('click',closeSheet);
+    map.panTo([s.lat,s.lng]);
+  }
+
+  map.on('click',function(e){
+    if(mode&&mode.type==='edit'){closeSheet();return}
+    openNew(e.latlng);
+  });
+
+  /* 現在地 */
+  function locate(cb){
+    if(!navigator.geolocation){toast('この端末では現在地を取得できません');return}
+    toast('現在地を取得しています…');
+    navigator.geolocation.getCurrentPosition(function(p){
+      var ll=L.latLng(p.coords.latitude,p.coords.longitude);
+      if(meMarker)map.removeLayer(meMarker);
+      meMarker=L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:'#2a6fdb',fillOpacity:1,interactive:false,className:'me'}).addTo(map);
+      $('#toast').hidden=true;
+      cb(ll);
+    },function(){toast('現在地を取得できませんでした。位置情報の許可を確認してください')},{enableHighAccuracy:true,timeout:10000,maximumAge:15000});
+  }
+  $('#btn-locate').addEventListener('click',function(){locate(function(ll){map.setView(ll,17)})});
+  $('#btn-add-here').addEventListener('click',function(){locate(function(ll){map.setView(ll,17);openNew(ll)})});
+
+  /* 書き出し・読み込み */
+  $('#btn-export').addEventListener('click',function(){
+    if(!stores.length){toast('まだ記録がありません');return}
+    var blob=new Blob([JSON.stringify(stores,null,2)],{type:'application/json'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);a.download='oolonghai-'+today()+'.json';
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(a.href)},2000);
+  });
+  $('#btn-import').addEventListener('click',function(){$('#file-import').click()});
+  $('#file-import').addEventListener('change',function(){
+    var f=this.files&&this.files[0];if(!f)return;
+    var r=new FileReader();
+    r.onload=function(){
+      try{
+        var arr=JSON.parse(r.result);
+        if(!Array.isArray(arr))throw new Error('形式が違います');
+        var have={};stores.forEach(function(s){have[s.id]=1});
+        var added=0;
+        arr.forEach(function(s){
+          if(s&&typeof s.lat==='number'&&typeof s.lng==='number'&&s.id&&!have[s.id]){
+            stores.push({id:String(s.id),name:String(s.name||'セブン-イレブン'),lat:s.lat,lng:s.lng,memo:String(s.memo||''),
+              visits:Array.isArray(s.visits)?s.visits.filter(function(v){return v&&(v.s==='yes'||v.s==='no')&&typeof v.d==='string'}):[]});
+            added++;
+          }
+        });
+        save();renderAll();toast(added+'件を追加しました');
+      }catch(err){toast('読み込めませんでした。書き出したファイルを選んでください')}
+    };
+    r.readAsText(f);this.value='';
+  });
+
+  /* 起動 */
+  load();renderAll();
+  if(stores.length){
+    var b=L.latLngBounds(stores.map(function(s){return [s.lat,s.lng]}));
+    map.fitBounds(b,{padding:[40,40],maxZoom:16});
+  }
+})();
+</script>
+</body>
+</html>
